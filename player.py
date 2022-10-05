@@ -1,5 +1,5 @@
-import random
-
+import numpy as np
+import math
 import pygame
 from variables import global_variables
 from nn import NeuralNetwork
@@ -8,6 +8,8 @@ from nn import NeuralNetwork
 class Player(pygame.sprite.Sprite):
     def __init__(self, game_mode):
         super().__init__()
+
+        # self.side = 'left'
 
         # loading images
         player_walk1 = pygame.image.load('Graphics/Player/player_walk_1.png').convert_alpha()
@@ -35,7 +37,7 @@ class Player(pygame.sprite.Sprite):
         if self.game_mode == "Neuroevolution":
             self.fitness = 0  # Initial fitness
 
-            layer_sizes = [3, 10, 2]  # TODO (Design your architecture here by changing the values)
+            layer_sizes = [6, 21, 1]  # TODO (Design your architecture here by changing the values)
             self.nn = NeuralNetwork(layer_sizes)
 
     def think(self, screen_width, screen_height, obstacles, player_x, player_y):
@@ -46,18 +48,86 @@ class Player(pygame.sprite.Sprite):
         :param screen_height: Game's screen height which is 800.
         :param obstacles: List of obstacles that are above the player. Each entry is a dictionary having 'x' and 'y' of
         the obstacle as the key. The list is sorted based on the obstacle's 'y' point on the screen. Hence, obstacles[0]
-        is the first obstacle on the scene. It is also worthwhile noting that 'y' range is in [-100, 656], such that
+        is the nearest obstacle to our player. It is also worthwhile noting that 'y' range is in [-100, 656], such that
         -100 means it is off screen (Topmost point) and 656 means in parallel to our player's 'y' point.
         :param player_x: 'x' position of the player
         :param player_y: 'y' position of the player
         """
         # TODO (change player's gravity here by calling self.change_gravity)
 
-        # This is a test code that changes the gravity based on a random number. Remove it before your implementation.
-        if random.randint(0, 2):
-            self.change_gravity('left')
+        diagonal = math.sqrt(screen_height ** 2 + 233 ** 2)
+
+        min_dist_left = diagonal
+        min_dist_right = diagonal
+        min_dist_fly = diagonal
+
+        obs_left = {'x': 177, 'y': -1e9}
+        obs_right = {'x': 410, 'y': -1e9}
+        obs_fly = {'x': -1e9, 'y': -1e9}
+
+        def dist(px, py, qx, qy):
+            d = math.sqrt((px - qx) ** 2 + (py - qy) ** 2)
+            return d
+
+        for obs in obstacles:
+            if obs['x'] < 180:
+                dist_left = dist(player_x, player_y, obs['x'], obs['y'])
+                if dist_left < min_dist_left:
+                    min_dist_left = dist_left
+                    obs_left['y'] = obs['y']
+                    obs_left['x'] = obs['x']
+            if obs['x'] > 400:
+                dist_right = dist(player_x, player_y, obs['x'], obs['y'])
+                if dist_right < min_dist_right:
+                    min_dist_right = dist_right
+                    obs_right['y'] = obs['y']
+                    obs_right['x'] = obs['x']
+            if 177 < obs['x'] < 410:
+                dist_fly = dist(player_x, player_y, obs['x'], obs['y'])
+                if dist_fly < min_dist_fly:
+                    min_dist_fly = dist_fly
+                    obs_fly['x'] = obs['x']
+                    obs_fly['y'] = obs['y']
+
+        if obs_fly['y'] > -1e5 and obs_left['y'] > -1e5:
+            dist_f_l = dist(obs_fly['x'], obs_fly['y'], obs_left['x'], obs_left['y'])
         else:
+            dist_f_l = diagonal
+
+        if obs_fly['y'] > -1e5 and obs_right['y'] > -1e5:
+            dist_f_r = dist(obs_fly['x'], obs_fly['y'], obs_right['x'], obs_right['y'])
+        else:
+            dist_f_r = diagonal
+
+        a = (player_x - 177) / 233
+
+        # if a < 0.1:
+        #     self.side = 'left'
+        # elif a > 0.9:
+        #     self.side = 'right'
+        #
+        # if self.side == 'right':
+        #     temp = min_dist_left
+        #     min_dist_left = min_dist_right
+        #     min_dist_right = temp
+
+        data = [min_dist_left / diagonal,
+                min_dist_right / diagonal,
+                min_dist_fly / diagonal,
+                dist_f_l / diagonal,
+                dist_f_r / diagonal,
+                a
+                ]
+
+        output = self.nn.forward(np.reshape(np.array(data), (len(data), 1)))
+
+        # if self.side == 'right':
+        #     output[0][0] = 1 - output[0][0]
+
+        if output[0][0] > 0.5:
             self.change_gravity('right')
+        else:
+            self.change_gravity('left')
 
     def change_gravity(self, new_gravity):
         """
